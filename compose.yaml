@@ -1,0 +1,44 @@
+name: adrobot
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: adrobot
+      POSTGRES_PASSWORD: ${ADROBOT_POSTGRES_PASSWORD:-adrobot}
+      POSTGRES_DB: adrobot
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U adrobot -d adrobot"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  api:
+    build: .
+    image: adrobot-backend:local
+    environment:
+      ADROBOT_DATABASE_URL: postgresql+psycopg://adrobot:${ADROBOT_POSTGRES_PASSWORD:-adrobot}@postgres:5432/adrobot
+      ADROBOT_KEITARO_BASE_URL: ${ADROBOT_KEITARO_BASE_URL:-https://keitaro.invalid}
+      ADROBOT_KEITARO_API_KEY: ${ADROBOT_KEITARO_API_KEY:-}
+    command: ["sh", "-c", "alembic -c backend/alembic.ini upgrade head && exec uvicorn adrobot.main:create_app --factory --host 0.0.0.0 --port 8000"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1',8000),timeout=3).close()"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+  web:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:3000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+volumes:
+  postgres-data:
